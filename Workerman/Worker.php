@@ -683,30 +683,40 @@ class Worker
      * Init All worker instances.
      *
      * @return void
+     * @throws Exception
      */
     protected static function initWorkers()
     {
+        //非linux环境直接退出
         if (static::$_OS !== \OS_TYPE_LINUX) {
             return;
         }
+
         foreach (static::$_workers as $worker) {
             // Worker name.
+            //没有设置worker的名称统一设置成none
             if (empty($worker->name)) {
                 $worker->name = 'none';
             }
-
             // Get unix user of the worker process.
+            // worker的名称可以在new的时候初始化
+            // 这里检测一下worker->user是否已经设置,没有设置则用运行当前进程的用户名赋值
             if (empty($worker->user)) {
+                //获取当前进程的用户名称
+                //这里是 bytedance
                 $worker->user = static::getCurrentUser();
             } else {
+                //posix_getuid == 0 意味着是root用户 todo 待验证
+                //如果执行当前进程的用户不是root,同时当前worker实例设置的user和执行进程的用户不是同一个
+                //那么需要提醒用户需要授予root权限
                 if (\posix_getuid() !== 0 && $worker->user !== static::getCurrentUser()) {
                     static::log('Warning: You must have the root privileges to change uid and gid.');
                 }
             }
 
+
             // Socket name.
             $worker->socket = $worker->getSocketName();
-
             // Status name.
             $worker->status = '<g> [OK] </g>';
 
@@ -719,6 +729,7 @@ class Worker
             }
 
             // Listen.
+            // 如果没有启动端口复用,则worker开始监听端口
             if (!$worker->reusePort) {
                 $worker->listen();
             }
@@ -729,6 +740,7 @@ class Worker
      * Reload all worker instances.
      *
      * @return void
+     * @throws Exception
      */
     public static function reloadAllWorkers()
     {
@@ -1423,20 +1435,37 @@ class Worker
      */
     protected static function daemonize()
     {
+        //如果在parseCommand阶段没有解析到-d命令
+        //将static::$daemonize[进程守护标识]设置为true
+        //或者不在linux环境下,直接返回
         if (!static::$daemonize || static::$_OS !== \OS_TYPE_LINUX) {
             return;
         }
+        //开始将进程守护化
+
+        //设置进程的umask为0
+        //则进程创建的文件权限Wie 777 - 000 = 777,由该进程创建的文件都是777权限
+        //当fork出子进程时,子进程会继承父进程的umask
         \umask(0);
         $pid = \pcntl_fork();
         if (-1 === $pid) {
+            //创建子进程失败抛出异常
             throw new Exception('Fork fail');
         } elseif ($pid > 0) {
+            //pid大于0为父进程
+            //执行到这里,父进程就直接退出了[在这里是执行了启动脚本[php index.php]的cli进程]
+            //执行worker::runAll()后续方法的都是守护化了的子进程
             exit(0);
         }
+
+        //创建一个新的session,让子进程脱离当前运行终端执行
+        //子进程转变为守护进程
         if (-1 === \posix_setsid()) {
             throw new Exception("Setsid fail");
         }
+
         // Fork again avoid SVR4 system regain the control of terminal.
+        // todo 这里的背景知识不太了解,但是按照作者的注释,似乎是兼容SVR4系统进程守护化时的特殊行为
         $pid = \pcntl_fork();
         if (-1 === $pid) {
             throw new Exception("Fork fail");
@@ -2433,6 +2462,7 @@ class Worker
         }
 
         // Turn reusePort on.
+        // todo reusePort 需要了解一下
         if (static::$_OS === \OS_TYPE_LINUX  // if linux
             && \version_compare(\PHP_VERSION,'7.0.0', 'ge') // if php >= 7.0.0
             && \strtolower(\php_uname('s')) !== 'darwin' // if not Mac OS
@@ -2456,16 +2486,29 @@ class Worker
 
         // Autoload.
         Autoloader::setRootPath($this->_autoloadRootPath);
-
+        //如果worker的实例没有设置被动套接字
         if (!$this->_mainSocket) {
-
+            //socket字符串解析
+            //tcp://0.0.0.0:2345
+            //最终返回的是传输层协议拼接端口
             $local_socket = $this->parseSocketAddress();
-
             // Flag.
+            //socket工作flag位的设置
+            //有连接的tcp协议需要创建流式套接字,并且在bind了宿主主机的ip和端口号后执行listen转化为被动套接字,才能开始接受客户端的请求
+            //而面向无连接的tcp协议需要创建用户数据报套接字,使用bind绑定宿主主机的ip和端口号,之后直接使用writeto和recvfrom就可以发送和接受数据包
+            //其中调用recvfrom时会阻塞直到对端发送了广播包或者指定当前宿主ip和端口的单播包时才会返回
+            //todo 复习一下
+            //tcp是有状态,需要服务端进行在socket(),bind()并且进行listen()之后才能接受客户端的请求产生连接
+            //udp是无状态,本身是网络层的继承,也没有什么连接的说法,所以udp只要通过bind绑定宿主机器的ip和端口号后
+            //通过使用writeto系统调用或者recvfrom系统调用就可以正常发送/接受数据包,接受到数据包后也不会有按序确认的机制
+            //直接以整个udp数据报的格式上交给操作系统的tcp/ip协议栈,由内核去除udp/ip/数据链路层包头后直接把数据复制到用户态的缓冲区
+            //如果传输层协议是udp,则flag指定为 STREAM_SERVER_BIND --> bind()
+            //如果传输层协议是tcp,则flag指定为 STREAM_SERVER_BIND | STREAM_SERVER_LISTEN --> bind()+ listen()
             $flags = $this->transport === 'udp' ? \STREAM_SERVER_BIND : \STREAM_SERVER_BIND | \STREAM_SERVER_LISTEN;
             $errno = 0;
             $errmsg = '';
             // SO_REUSEPORT.
+            // 是否设置了端口复用
             if ($this->reusePort) {
                 \stream_context_set_option($this->_context, 'socket', 'so_reuseport', 1);
             }
@@ -2529,22 +2572,42 @@ class Worker
             return;
         }
         // Get the application layer communication protocol and listening address.
+        // $scheme http 应用层协议名称
+        // $address //0.0.0.0:2345 //{ipAddr}:{port}
         list($scheme, $address) = \explode(':', $this->_socketName, 2);
+
         // Check application layer protocol class.
+        // 检测是否为workerman支持的网络协议
+        /**
+         *  'tcp'   => 'tcp',
+            'udp'   => 'udp',
+            'unix'  => 'unix',
+            'ssl'   => 'tcp'
+         */
+        //首先检测传输层协议,tcp,udp,unix socket和ssl
         if (!isset(static::$_builtinTransports[$scheme])) {
+            //如果不是传输层协议,则检测是否为workerman支持的应用层协议
+            //字符串首字符大写
             $scheme         = \ucfirst($scheme);
             $this->protocol = \substr($scheme,0,1)==='\\' ? $scheme : 'Protocols\\' . $scheme;
+            //拼接出类名
+            //Protocols\Http
+            //如果类不存在
             if (!\class_exists($this->protocol)) {
+                //如果类不存在,拼接上Workerman前缀继续检测
                 $this->protocol = "Workerman\\Protocols\\$scheme";
                 if (!\class_exists($this->protocol)) {
+                    //仍然检测不到类的前缀则抛出异常
                     throw new Exception("class \\Protocols\\$scheme not exist");
                 }
             }
-
+            //对象的$transport属性是否配置得当
+            //必须要是tcp,upd,ssl或者unix,配置不当抛异常
             if (!isset(static::$_builtinTransports[$this->transport])) {
                 throw new Exception('Bad worker->transport ' . \var_export($this->transport, true));
             }
         } else {
+            //使用$scheme的值更新transport
             $this->transport = $scheme;
         }
         //local socket
