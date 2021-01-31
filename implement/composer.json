@@ -1,0 +1,20 @@
+{
+    "name": "bytedance/implement",
+    "description": "The package name workerman implement by mysself for learning programing in posix os",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "yangruiyang",
+            "email": "yangruiyang@bytedance.com"
+        }
+    ],
+    "require": {
+
+    },
+    "autoload": {
+        "psr-4":{
+            "YryWorkerman\\":"\\src"
+        }
+    }
+}
