@@ -118,6 +118,7 @@ class Timer
         }
 
         if (self::$_event) {
+            //把定时器也当成事件处理,添加到事件轮询中心做归一化处理,此为时间事件
             return self::$_event->add($time_interval,
                 $persistent ? EventInterface::EV_TIMER : EventInterface::EV_TIMER_ONCE, $func, $args);
         }

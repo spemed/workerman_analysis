@@ -61,9 +61,9 @@ interface EventInterface
      * Add event listener to event loop.
      *
      * @param mixed    $fd
-     * @param int      $flag
-     * @param callable $func
-     * @param mixed    $args
+     * @param int      $flag 标识是哪种事件的枚举类型
+     * @param callable $func 回调函数
+     * @param mixed    $args 传递给回调函数的参数
      * @return bool
      */
     public function add($fd, $flag, $func, $args = null);

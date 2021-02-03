@@ -17,4 +17,7 @@ $http_worker->onMessage = function($connection, $data)
 };
 
 // 运行worker
-Worker::runAll();
+try {
+    Worker::runAll();
+} catch (Exception $e) {
+}
