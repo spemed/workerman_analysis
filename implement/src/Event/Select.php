@@ -54,14 +54,15 @@ class Select extends AbsEvent
      */
     public function registerSocket($fd, int $flag, Closure $func, array $argv = []): bool
     {
-        $socket = new Socket((int)$fd,$flag,$func,$argv);
-        $this->socketEvents[(int)$fd][$flag] = $socket;
+        $socketInt = (int)$fd;
+        $socket = new Socket($socketInt,$flag,$func,$argv);
+        $this->socketEvents[$socketInt][$flag] = $socket;
         if ($socket->isRead()) {
-            $this->readFds[(int)$fd] = $fd;
+            $this->readFds[$socketInt] = $fd;
         } else if ($socket->isWrite()) {
-            $this->writeFds[(int)$fd] = $fd;
+            $this->writeFds[$socketInt] = $fd;
         } else if ($socket->isExcept()) {
-            $this->exceptFds[(int)$fd] = $fd;
+            $this->exceptFds[$socketInt] = $fd;
         }
         return true;
     }
