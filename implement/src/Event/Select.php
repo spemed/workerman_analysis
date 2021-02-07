@@ -54,7 +54,15 @@ class Select extends AbsEvent
      */
     public function registerSocket($fd, int $flag, Closure $func, array $argv = []): bool
     {
-        $this->socketEvents[(int)$fd][$flag] = new Socket((int)$fd,$flag,$func,$argv);
+        $socket = new Socket((int)$fd,$flag,$func,$argv);
+        $this->socketEvents[(int)$fd][$flag] = $socket;
+        if ($socket->isRead()) {
+            $this->readFds[(int)$fd] = $fd;
+        } else if ($socket->isWrite()) {
+            $this->writeFds[(int)$fd] = $fd;
+        } else if ($socket->isExcept()) {
+            $this->exceptFds[(int)$fd] = $fd;
+        }
         return true;
     }
 
@@ -132,7 +140,7 @@ class Select extends AbsEvent
                 $write = $this->writeFds;
                 $except = $this->exceptFds;
                 //直接微秒级时间戳
-                $result = @stream_select($this->readFds,$this->writeFds,$this->exceptFds,0,$this->selectTimeout);
+                $result = stream_select($read,$write,$except,0,$this->selectTimeout);
             } else {
                 //没有文件事件则空睡
                 //如果收到信号,慢阻塞系统调用会被信号打断
@@ -145,7 +153,7 @@ class Select extends AbsEvent
             }
 
             //文件事件非空开始执行文件事件
-            if (!$result) {
+            if ($result) {
                 foreach ($read as $v) {
                     $fileEvent = $this->socketEvents[(int)$v][Flag::FD_READ];
                     $fileEvent->execute();
@@ -163,10 +171,14 @@ class Select extends AbsEvent
 
     }
 
+    /**
+     * @param resource $fd
+     * @param int $flag
+     */
     public function delSocket($fd, int $flag): void
     {
         //取得socketItem
-        $socketItem = $this->socketEvents[$fd][$flag] ?? null;
+        $socketItem = $this->socketEvents[(int)$fd][$flag] ?? null;
         //已经是null则说明已经删除成功
         if (!is_null(null)) {
             return;
@@ -186,6 +198,7 @@ class Select extends AbsEvent
                 unset($this->exceptFds[(int)$fd]);
             }
         }
+        fclose($fd);
         return;
     }
 
@@ -241,8 +254,9 @@ class Select extends AbsEvent
                 }
                 //从时间任务表中删除
                 unset($this->timerEvents[$this->timerId]);
+            } else {
+                return;
             }
-            return;
         }
         //如果没有可以执行的定时事件则重新设置 $this->selectTimeout
         $this->selectTimeout = self::defaultSelectTimeout;

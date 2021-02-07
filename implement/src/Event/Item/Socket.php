@@ -26,10 +26,11 @@ class Socket extends Base
      */
     public function __construct(int $fd,int $flag,Closure $handle, array $args = [])
     {
-        if ($flag != Flag::FD_READ || $flag != Flag::FD_WRITE || $flag != Flag::FD_EXCEPT) {
+        $this->fd = $fd;
+        $this->flag = $flag;
+        if (!$this->isRead() && !$this->isWrite() && !$this->isExcept()) {
             throw new InvalidInput("flag should be Flag::FD_READ or Flag::FD_WRITE or Flag::FD_EXCEPT");
         }
-        $this->fd = $fd;
         parent::__construct($handle, $args);
     }
 
