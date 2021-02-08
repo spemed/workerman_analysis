@@ -15,6 +15,7 @@ namespace Workerman\Connection;
 
 /**
  * ConnectionInterface.
+ * 为每个链接维护一个ConnectionInterface实现的实例
  */
 abstract class  ConnectionInterface
 {
@@ -23,11 +24,11 @@ abstract class  ConnectionInterface
      *
      * @var array
      */
-    public static $statistics = array(
+    public static array $statistics = array(
         'connection_count' => 0,
-        'total_request'    => 0,
-        'throw_exception'  => 0,
-        'send_fail'        => 0,
+        'total_request' => 0,
+        'throw_exception' => 0,
+        'send_fail' => 0,
     );
 
     /**

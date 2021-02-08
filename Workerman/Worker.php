@@ -651,7 +651,7 @@ class Worker
         static::initId();
 
         // Timer init.
-        // 初始化定时器
+        // 注册ALARM信号
         Timer::init();
     }
 
@@ -709,7 +709,7 @@ class Worker
             } else {
                 //posix_getuid == 0 意味着是root用户 todo 待验证
                 //如果执行当前进程的用户不是root,同时当前worker实例设置的user和执行进程的用户不是同一个
-                //那么需要提醒用户需要授予root权限
+                //需要提醒用户需要授予root权限
                 if (\posix_getuid() !== 0 && $worker->user !== static::getCurrentUser()) {
                     static::log('Warning: You must have the root privileges to change uid and gid.');
                 }
@@ -945,7 +945,7 @@ class Worker
         $start_file = $argv[0];
         //todo 使用$start_file取代yourfile,优化提示
         //$usage = "Usage: php yourfile <command> [mode]\nCommands: \nstart\t\tStart worker in DEBUG mode.\n\t\tUse mode -d to start in DAEMON mode.\nstop\t\tStop worker.\n\t\tUse mode -g to stop gracefully.\nrestart\t\tRestart workers.\n\t\tUse mode -d to start in DAEMON mode.\n\t\tUse mode -g to stop gracefully.\nreload\t\tReload codes.\n\t\tUse mode -g to reload gracefully.\nstatus\t\tGet worker status.\n\t\tUse mode -d to show live status.\nconnections\tGet worker connections.\n";
-        $usage = "Usage: php $start_file <command> [mode]\nCommands: \nstart\t\tStart worker in DEBUG mode.\n\t\tUse mode -d to start in DAEMON mode.\nstop\t\tStop worker.\n\t\tUse mode -g to stop gracefully.\nrestart\t\tRestart workers.\n\t\tUse mode -d to start in DAEMON mode.\n\t\tUse mode -g to stop gracefully.\nreload\t\tReload codes.\n\t\tUse mode -g to reload gracefully.\nstatus\t\tGet worker status.\n\t\tUse mode -d to show live status.\nconnections\tGet worker connections.\n";
+        $usage = "Usage: php {$start_file} <command> [mode]\nCommands: \nstart\t\tStart worker in DEBUG mode.\n\t\tUse mode -d to start in DAEMON mode.\nstop\t\tStop worker.\n\t\tUse mode -g to stop gracefully.\nrestart\t\tRestart workers.\n\t\tUse mode -d to start in DAEMON mode.\n\t\tUse mode -g to stop gracefully.\nreload\t\tReload codes.\n\t\tUse mode -g to reload gracefully.\nstatus\t\tGet worker status.\n\t\tUse mode -d to show live status.\nconnections\tGet worker connections.\n";
         $available_commands = array(
             'start',
             'stop',
@@ -998,18 +998,18 @@ class Worker
         //只有同时满足三个条件才认为master进程still alive
         //1.master_pid存在[已经生成了master_pid文件]
         //2.posix_kill($master_pid,0),探测当前进程的状态,该进程仍存在内存中则返回true,否则返回false
-        //3.当前进程的pid不等于$master_pid进程[老进程]
+        //3.当前进程的pid不等于$master_pid进程[pid是唯一的,不可能出现两个相同的pid,master_pid和当前pid相同只能说明存储master进程pid的文件没有被及时清理]
         $master_is_alive = $master_pid && \posix_kill($master_pid, 0) && \posix_getpid() !== $master_pid;
 
         // Master is still alive?
         if ($master_is_alive) {
-            //如果进程已经启动,则不允许重复启动
+            //如果进程已经启动,拒绝start命令
             if ($command === 'start') {
                 static::log("Workerman[$start_file] already running");
                 exit;
             }
         } elseif ($command !== 'start' && $command !== 'restart') {
-            //如果进程没有启动,那么只能执行start和restart的command
+            //进程尚未启动,则拒绝除了start和restart之外的其他命令
             static::log("Workerman[$start_file] not run");
             exit;
         }
@@ -1064,7 +1064,7 @@ class Worker
                      */
                     static::safeEcho(static::formatStatusData());
                     if ($mode !== '-d') {
-                        exit(0);
+                       exit();
                     }
                     static::safeEcho("\nPress Ctrl+C to quit.\n\n");
                 }
@@ -1116,7 +1116,7 @@ class Worker
                     static::log("Workerman[$start_file] is stopping ...");
                 }
                 // Send stop signal to master process.
-                // 如果$master_pid存在,则向master发送信号
+                // 向master进程发送信号
                 $master_pid && \posix_kill($master_pid, $sig);
                 // Timeout.
                 $timeout    = 5;
@@ -1127,8 +1127,8 @@ class Worker
                     $master_is_alive = $master_pid && \posix_kill($master_pid, 0);
                     if ($master_is_alive) {
                         // Timeout?
-                        // 如果不是优雅退出模式,而且当前时间减去开始执行退出命令的时间大于$timeout
-                        // 说明退出的过程中出现了异常,打印日志后退出本次脚本的执行
+                        // 不是优雅退出的情况下,如果执行脚本的等待时间超过$timeout
+                        // 则打印进程退出失败的信息后退出脚本进程
                         if (!static::$_gracefulStop && \time() - $start_time >= $timeout) {
                             static::log("Workerman[$start_file] stop fail");
                             exit;
@@ -1142,8 +1142,8 @@ class Worker
                     // 如果master_pid进程已经被杀死,则说明退出成功
                     static::log("Workerman[$start_file] stop success");
                     //如果当前命令是stop直接退出当前脚本[执行php index.php脚本也会产生一个cli进程]
-                    //todo 这里就是restart命令和stop命令的分歧点,如果是stop命令会直接使得脚本进程退出
-                    //todo 如果是restart命令,则脚本进程会直接执行 worker::runAll()中parseCommand后续的其他方法
+                    //这里就是restart命令和stop命令的分歧点,如果是stop命令会直接使得脚本进程退出
+                    //如果是restart命令,则脚本进程会执行 worker::runAll()中parseCommand后续的其他方法
                     if ($command === 'stop') {
                         exit(0);
                     }
@@ -1352,6 +1352,8 @@ class Worker
         // connection status
         \pcntl_signal(\SIGIO, $signalHandler, false);
         // ignore
+        // 对已经收到rst分节的套接字执行write操作会收到SIGPIPE信号,默认行为使得进程退出
+        // 这里忽略了该信号
         \pcntl_signal(\SIGPIPE, \SIG_IGN, false);
     }
 
@@ -1453,10 +1455,10 @@ class Worker
         if (!static::$daemonize || static::$_OS !== \OS_TYPE_LINUX) {
             return;
         }
-        //开始将进程守护化
 
+        //开始将进程守护化
         //设置进程的umask为0
-        //则进程创建的文件权限Wie 777 - 000 = 777,由该进程创建的文件都是777权限
+        //则进程创建的文件权限为777 - 000 = 777,由该进程创建的文件都是777权限
         //当fork出子进程时,子进程会继承父进程的umask
         \umask(0);
         $pid = \pcntl_fork();
@@ -1549,7 +1551,7 @@ class Worker
 
     /**
      * Get event loop name.
-     *
+     * 选择合适的eventLoop
      * @return string
      */
     protected static function getEventLoopName()
@@ -1594,7 +1596,8 @@ class Worker
 
     /**
      * Get all pids of worker processes.
-     * 把每个worker下的所有pid塞到一个map
+     * 二维数组打散成一维数组
+     * 把每个worker下的所有进程的pid塞到一个map
      * @return array
      */
     protected static function getAllWorkerPids()
@@ -1790,6 +1793,7 @@ class Worker
         $pid = \pcntl_fork();
         // For master process.
         if ($pid > 0) {
+            //count($_pidMap)将会+1
             static::$_pidMap[$worker->workerId][$pid] = $pid;
             static::$_idMap[$worker->workerId][$id]   = $pid;
         } // For child processes.
@@ -1801,7 +1805,7 @@ class Worker
                 $worker->listen();
             }
             if (static::$_status === static::STATUS_STARTING) {
-                //worker子进程重定向输入输出
+                //worker子进程重定向输标准入输出
                 static::resetStd();
             }
             static::$_pidMap  = array();
@@ -1823,6 +1827,7 @@ class Worker
             $worker->setUserAndGroup();
             $worker->id = $id;
             //该进程开始工作
+            //将会阻塞于run()
             $worker->run();
             if (strpos(static::$eventLoopClass, 'Workerman\Events\Swoole') !== false) {
                 exit(0);
@@ -1939,7 +1944,11 @@ class Worker
             \pcntl_signal_dispatch();
             // Suspends execution of the current process until a child has exited, or until a signal is delivered
             $status = 0;
-            // 类似系统调用中的waitpid
+            // waitpid,阻塞直到有子进程退出,属于慢系统调用[通过配置第二个参数也可以指定其未非阻塞,如果没有退出的子进程需要收集则返回0]
+            // 当子进程退出时,父进程会接收到SIGCHLD信号[仅做补充,和这里的情况没有关系]
+            // 在unix网络编程的demo中,之所以需要在SIGCHLD的回调中调用waitpid(&status,WNOHANG);
+            // 是因为其只有单线程,如果使用WUNTRACED将会阻塞住整个线程从而无法提供网络服务
+            // 所以我们选择在收到SIGCHLD时调用waitpid(&status,WNOHANG),不阻塞的收集所有退出的子进程信息,返回0时退出回调,然后从被信号[软件中断]打断的代码[指令]处重新执行
             $pid    = \pcntl_wait($status, \WUNTRACED);
             // Calls signal handlers for pending signals again.
             \pcntl_signal_dispatch();
@@ -1974,6 +1983,7 @@ class Worker
                 if (static::$_status !== static::STATUS_SHUTDOWN) {
                     static::forkWorkers();
                     // If reloading continue.
+                    // 如果 reload的过程中子进程被杀死,则将其从待reload的pid列表中删除,而后重新执行reload操作
                     if (isset(static::$_pidsToRestart[$pid])) {
                         unset(static::$_pidsToRestart[$pid]);
                         static::reload();
@@ -2032,6 +2042,7 @@ class Worker
         // For master process.
         if (static::$_masterPid === \posix_getpid()) {
             // Set reloading state.
+            // 不允许重复reload和shutdown,只有在上一次reload完成之后才可以继续reload
             if (static::$_status !== static::STATUS_RELOADING && static::$_status !== static::STATUS_SHUTDOWN) {
                 static::log("Workerman[" . \basename(static::$_startFile) . "] reloading");
                 static::$_status = static::STATUS_RELOADING;
@@ -2082,7 +2093,8 @@ class Worker
             static::$_pidsToRestart = \array_intersect(static::$_pidsToRestart, $reloadable_pid_array);
 
             // Reload complete.
-            // 如果 static::$_pidsToRestart) 为空,则说明已经reload完成,把master进程的状态置为 STATUS_RUNNING
+            // 如果 static::$_pidsToRestart 为空,则说明已经reload完成
+            // master进程不处于STATUS_SHUTDOWN的情况下将其置位STATUS_RUNNING
             if (empty(static::$_pidsToRestart)) {
                 if (static::$_status !== static::STATUS_SHUTDOWN) {
                     static::$_status = static::STATUS_RUNNING;
@@ -2137,7 +2149,6 @@ class Worker
             $worker_pid_array = static::getAllWorkerPids();
             // Send stop signal to all child processes.
             // 根据是否平滑重启,向所有子进程发送信号
-            // todo 之前猜想错误,当父进程收到信号时,子进程并不会接受到同样信号,但是可以由父进程转发
             if (static::$_gracefulStop) {
                 $sig = \SIGHUP;
             } else {
@@ -2145,7 +2156,7 @@ class Worker
             }
             foreach ($worker_pid_array as $worker_pid) {
                 \posix_kill($worker_pid, $sig);
-                //如果不是平滑重启,则启动一个定时器,2s后粗暴地杀死对应$worker_pid的子进程
+                //如果不是平滑重启,则启动一个只执行一次的时间事件,2s后粗暴地杀死对应$worker_pid的子进程
                 if(!static::$_gracefulStop){
                     Timer::add(static::KILL_WORKER_TIMER_TIME, '\posix_kill', array($worker_pid, \SIGKILL), false);
                 }
@@ -2166,6 +2177,7 @@ class Worker
                     $worker->stopping = true;
                 }
             }
+
             //如果不是优雅关闭,或者当前进程没有需要维护的连接
             if (!static::$_gracefulStop || ConnectionInterface::$statistics['connection_count'] <= 0) {
                 //把workers实例的集合置为空数组
@@ -2594,9 +2606,10 @@ class Worker
             if (\function_exists('socket_import_stream') && static::$_builtinTransports[$this->transport] === 'tcp') {
                 //锦上添花行为,失败了不报错
                 \set_error_handler(function(){});
-                //尝试为被动套接字设置keep_alive选项,启动tcp自带的心跳连接
                 $socket = \socket_import_stream($this->_mainSocket);
+                //尝试为被动套接字设置keep_alive选项,启动tcp自带的心跳连接
                 \socket_set_option($socket, \SOL_SOCKET, \SO_KEEPALIVE, 1);
+                //todo 复习一下 Nagle 算法
                 \socket_set_option($socket, \SOL_TCP, \TCP_NODELAY, 1);
                 \restore_error_handler();
             }
@@ -2650,15 +2663,15 @@ class Worker
             'unix'  => 'unix',
             'ssl'   => 'tcp'
          */
-        //首先检测传输层协议,tcp,udp,unix socket和ssl
+        //传输层协议共有tcp,udp,unix,ssl
+        //如果scheme不是传输层协议,则检测其是否为workerman支持的应用层协议
         if (!isset(static::$_builtinTransports[$scheme])) {
-            //如果不是传输层协议,则检测是否为workerman支持的应用层协议
             //字符串首字符大写
             $scheme         = \ucfirst($scheme);
-            $this->protocol = \substr($scheme,0,1)==='\\' ? $scheme : 'Protocols\\' . $scheme;
             //拼接出类名
+            $this->protocol = \substr($scheme,0,1)==='\\' ? $scheme : 'Protocols\\' . $scheme;
             //Protocols\Http
-            //如果类不存在
+            //如果类不存在,说明不支持该应用层协议
             if (!\class_exists($this->protocol)) {
                 //如果类不存在,拼接上Workerman前缀继续检测
                 $this->protocol = "Workerman\\Protocols\\$scheme";

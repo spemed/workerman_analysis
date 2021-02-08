@@ -14,10 +14,7 @@
 namespace Workerman\Protocols;
 
 use Workerman\Connection\TcpConnection;
-use Workerman\Protocols\Http\Request;
 use Workerman\Protocols\Http\Response;
-use Workerman\Protocols\Websocket;
-use Workerman\Worker;
 
 /**
  * Class Http.
@@ -97,6 +94,21 @@ class Http
      * @param string $recv_buffer
      * @param TcpConnection $connection
      * @return int
+     * @description http报文样例
+       GET /search?hl=zh-CN&source=hp&q=domety&aq=f&oq= HTTP/1.1
+       Accept: image/gif, image/x-xbitmap, image/jpeg, image/pjpeg, application/vnd.ms-excel, application/vnd.ms-powerpoint, application/msword, application/x-silverlight, application/x-shockwave-flash,
+       Referer: <a href="http://www.google.cn/">http://www.google.cn/</a>
+       Accept-Language: zh-cn
+       Accept-Encoding: gzip, deflate
+       User-Agent: Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; SV1; .NET CLR 2.0.50727; TheWorld)
+       Host: <a href="http://www.google.cn">www.google.cn</a>
+       Connection: Keep-Alive
+       Cookie: PREF=ID=80a06da87be9ae3c:U=f7167333e2c3b714:NW=1:TM=1261551909:LM=1261551917:S=ybYcq2wpfefs4V9g; NID=31=ojj8d-IygaEtSxLgaJmqSjVhCspkviJrB6omjamNrSm8lZhKy_yMfO2M4QMRKcH1g0iQv9u-2hfBW7bUFwVh7pGaRUb0RnHcJU37y-FxlRugatx63JLv7CWMD6UB_O_r
+       (\r\n)回车
+       (\r\n)回车
+       name=hello&age=18[请求的body]
+
+     *
      */
     public static function input($recv_buffer, TcpConnection $connection)
     {
@@ -105,6 +117,8 @@ class Http
             return $input[$recv_buffer];
         }
         $crlf_pos = \strpos($recv_buffer, "\r\n\r\n");
+        print_r($recv_buffer);
+        print_r("crlf_pos===$crlf_pos\n");
         if (false === $crlf_pos) {
             // Judge whether the package length exceeds the limit.
             if ($recv_len = \strlen($recv_buffer) >= 16384) {
@@ -114,7 +128,11 @@ class Http
             return 0;
         }
 
+        //取得http请求报文header的长度
         $head_len = $crlf_pos + 4;
+        // 匹配接受到的文本中的第一个空行之前的字符串
+        // GET /test HTTP/1.1
+        // 如果正常此处将会得到GET
         $method = \strstr($recv_buffer, ' ', true);
 
         if ($method === 'GET' || $method === 'OPTIONS' || $method === 'HEAD' || $method === 'DELETE') {
@@ -130,6 +148,7 @@ class Http
             return 0;
         }
 
+        //如果存在content-length则匹配出其长度,这个是http request body的大小。
         $header = \substr($recv_buffer, 0, $crlf_pos);
         $length = false;
         if ($pos = \strpos($header, "\r\nContent-Length: ")) {

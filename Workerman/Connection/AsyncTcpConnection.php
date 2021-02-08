@@ -35,14 +35,14 @@ class AsyncTcpConnection extends TcpConnection
      *
      * @var string
      */
-    public $transport = 'tcp';
+    public string $transport = 'tcp';
 
     /**
      * Status.
      *
      * @var int
      */
-    protected $_status = self::STATUS_INITIAL;
+    protected int $_status = self::STATUS_INITIAL;
 
     /**
      * Remote host.

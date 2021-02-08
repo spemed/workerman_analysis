@@ -47,7 +47,7 @@ class Pool
     protected static function checkSapiEnv() {
         //非cli环境直接报错
         if (php_sapi_name() !== PHP_SAPI) {
-            exit("workerman must start in php-cli");
+            "workerman must start in php-cli");
         }
         if (DIRECTORY_SEPARATOR === "\\") {
             self::$os = Constants::OS_TYPE_WINDOWS;

@@ -14,6 +14,7 @@
 namespace Workerman\Connection;
 
 use Workerman\Events\EventInterface;
+use Workerman\Protocols\ProtocolInterface;
 use Workerman\Worker;
 use \Exception;
 
@@ -103,7 +104,7 @@ class TcpConnection extends ConnectionInterface
      * Application layer protocol.
      * The format is like this Workerman\\Protocols\\Http.
      *
-     * @var \Workerman\Protocols\ProtocolInterface
+     * @var ProtocolInterface
      */
     public $protocol = null;
 
@@ -112,78 +113,77 @@ class TcpConnection extends ConnectionInterface
      *
      * @var string
      */
-    public $transport = 'tcp';
+    public string $transport = 'tcp';
 
     /**
      * Which worker belong to.
      *
      * @var Worker
      */
-    public $worker = null;
+    public ?Worker $worker = null;
 
     /**
      * Bytes read.
      *
      * @var int
      */
-    public $bytesRead = 0;
+    public int $bytesRead = 0;
 
     /**
      * Bytes written.
      *
      * @var int
      */
-    public $bytesWritten = 0;
+    public int $bytesWritten = 0;
 
     /**
      * Connection->id.
      *
      * @var int
      */
-    public $id = 0;
+    public int $id = 0;
 
     /**
      * A copy of $worker->id which used to clean up the connection in worker->connections
-     *
      * @var int
      */
-    protected $_id = 0;
+    protected int $_id = 0;
 
     /**
      * Sets the maximum send buffer size for the current connection.
      * OnBufferFull callback will be emited When the send buffer is full.
-     *
+     * 每个链接上发送的字节数超过$maxSendBufferSize则关闭连接,同时调用OnBufferFull回调。
      * @var int
      */
-    public $maxSendBufferSize = 1048576;
+    public int $maxSendBufferSize = 1048576;
 
     /**
      * Default send buffer size.
-     *
+     * 默认套接字发送缓冲区的大小
      * @var int
      */
-    public static $defaultMaxSendBufferSize = 1048576;
+    public static int $defaultMaxSendBufferSize = 1048576;
 
     /**
      * Sets the maximum acceptable packet size for the current connection.
-     *
+     * 包长度
      * @var int
      */
-    public $maxPackageSize = 1048576;
+    public int $maxPackageSize = 1048576;
     
     /**
      * Default maximum acceptable packet size.
      *
      * @var int
      */
-    public static $defaultMaxPackageSize = 10485760;
+    public static int $defaultMaxPackageSize = 10485760;
 
     /**
      * Id recorder.
-     *
+     * 静态变量,id记录器
      * @var int
      */
-    protected static $_idRecorder = 1;
+    protected static int $_idRecorder = 1;
 
     /**
      * Socket
@@ -194,71 +194,71 @@ class TcpConnection extends ConnectionInterface
 
     /**
      * Send buffer.
-     *
+     * 用户态的写缓冲区
      * @var string
      */
-    protected $_sendBuffer = '';
+    protected string $_sendBuffer = '';
 
     /**
      * Receive buffer.
-     *
+     * 用户态的读缓冲区
      * @var string
      */
-    protected $_recvBuffer = '';
+    protected string $_recvBuffer = '';
 
     /**
      * Current package length.
      *
      * @var int
      */
-    protected $_currentPackageLength = 0;
+    protected int $_currentPackageLength = 0;
 
     /**
      * Connection status.
      *
      * @var int
      */
-    protected $_status = self::STATUS_ESTABLISHED;
+    protected int $_status = self::STATUS_ESTABLISHED;
 
     /**
      * Remote address.
      *
      * @var string
      */
-    protected $_remoteAddress = '';
+    protected string $_remoteAddress = '';
 
     /**
      * Is paused.
      *
      * @var bool
      */
-    protected $_isPaused = false;
+    protected bool $_isPaused = false;
 
     /**
      * SSL handshake completed or not.
-     *
+     * 是否启动ssl握手
      * @var bool
      */
-    protected $_sslHandshakeCompleted = false;
+    protected bool $_sslHandshakeCompleted = false;
 
     /**
      * All connection instances.
-     *
+     * 所有连接对象的集合
      * @var array
      */
-    public static $connections = array();
+    public static array $connections = array();
 
     /**
      * Status to string.
      *
      * @var array
      */
-    public static $_statusToString = array(
-        self::STATUS_INITIAL     => 'INITIAL',
-        self::STATUS_CONNECTING  => 'CONNECTING',
+    public static array $_statusToString = array(
+        self::STATUS_INITIAL => 'INITIAL',
+        self::STATUS_CONNECTING => 'CONNECTING',
         self::STATUS_ESTABLISHED => 'ESTABLISHED',
-        self::STATUS_CLOSING     => 'CLOSING',
-        self::STATUS_CLOSED      => 'CLOSED',
+        self::STATUS_CLOSING => 'CLOSING',
+        self::STATUS_CLOSED => 'CLOSED',
     );
 
     /**
@@ -270,20 +270,28 @@ class TcpConnection extends ConnectionInterface
     public function __construct($socket, $remote_address = '')
     {
         ++self::$statistics['connection_count'];
+        //静态的id记录器自增,分配给id和_id
         $this->id = $this->_id = self::$_idRecorder++;
+        //自增的id记录器达到PHP_INT_MAX，则把self::$_idRecorder赋值为0
         if(self::$_idRecorder === \PHP_INT_MAX){
             self::$_idRecorder = 0;
         }
         $this->_socket = $socket;
+        //设置为非阻塞io
         \stream_set_blocking($this->_socket, 0);
         // Compatible with hhvm
+        // 兼容hhvm的多线程mode
         if (\function_exists('stream_set_read_buffer')) {
+            //buffer设置为0，使用fread进行读取操作会保证线程安全[在当前的fread操作完成之前不会被其他线程/进程访问]
             \stream_set_read_buffer($this->_socket, 0);
         }
+        //为套接字注册读事件
         Worker::$globalEvent->add($this->_socket, EventInterface::EV_READ, array($this, 'baseRead'));
         $this->maxSendBufferSize        = self::$defaultMaxSendBufferSize;
         $this->maxPackageSize           = self::$defaultMaxPackageSize;
+        //设置远端地址
         $this->_remoteAddress           = $remote_address;
+        //往静态$connections数组添加当前tcpConnection的实例
         static::$connections[$this->id] = $this;
     }
 
@@ -551,7 +559,7 @@ class TcpConnection extends ConnectionInterface
      * Base read handler.
      *
      * @param resource $socket
-     * @param bool $check_eof
+     * @param bool $check_eof 是否需要检查EOF(收到fin包)
      * @return void
      */
     public function baseRead($socket, $check_eof = true)
@@ -571,24 +579,37 @@ class TcpConnection extends ConnectionInterface
         $buffer = '';
         try {
             $buffer = @\fread($socket, self::READ_BUFFER_SIZE);
-        } catch (\Exception $e) {} catch (\Error $e) {}
+        } catch (\Exception $e) {}
+
 
         // Check connection closed.
         if ($buffer === '' || $buffer === false) {
+            //如果需要检测fin包,且收到了fin包的情况下释放连接,清除事件循环中心中的事件[避免close wait]
             if ($check_eof && (\feof($socket) || !\is_resource($socket) || $buffer === false)) {
                 $this->destroy();
                 return;
             }
         } else {
+            //更新已经读取的字节数
             $this->bytesRead += \strlen($buffer);
+            //读缓冲区追加buffer
             $this->_recvBuffer .= $buffer;
         }
 
         // If the application layer protocol has been set up.
+        // 取得应用层协议的处理类
         if ($this->protocol !== null) {
             $parser = $this->protocol;
+            //tcp面向字节流传输,数据本身是无边界的,需要在应用层协商好数据包的长度,然后从读缓冲区中取出数据时
+            //根据recvBuffer的长度[从读缓冲区中读出来的数据]和数据包长度的大小做判断,会有以下几种情况
+            //1.需要的数据包的长度等于recvBuffer的长度 --> 收到了完整的数据包
+            //2.需要的数据包的长度大于recvBuffer的长度 --> 数据包不完整,需要继续等待对端发送tcp分节 (所谓"半包")
+            //3.需要的数据包的长度小于recvBuffer的长度 --> 下一个数据包的数据和本数据包同时到达,需要对recvBuffer做截断 (所谓"沾包")
             while ($this->_recvBuffer !== '' && !$this->_isPaused) {
+                // 半包
                 // The current packet length is known.
+                // 如果当前packet的长度大于累计接收到的recvBuffer的长度,则直接break跳出循环
+                // 等待获取到完整的packet
                 if ($this->_currentPackageLength) {
                     // Data is not enough for a package.
                     if ($this->_currentPackageLength > \strlen($this->_recvBuffer)) {
@@ -597,13 +618,21 @@ class TcpConnection extends ConnectionInterface
                 } else {
                     // Get current package length.
                     try {
+                        //调用应用层的parse进行解析
+                        //得到当前packet的长度
                         $this->_currentPackageLength = $parser::input($this->_recvBuffer, $this);
-                    } catch (\Exception $e) {} catch (\Error $e) {}
+                        //echo "\$this->_currentPackageLength=".$this->_currentPackageLength.PHP_EOL;
+                        //echo "\$this->_recvBufferLength=".strlen($this->_recvBuffer).PHP_EOL;
+                    } catch (\Exception $e) {}
                     // The packet length is unknown.
+                    // _recvBuffer是残缺的,不足以从中分析出数据包的长度
+                    // break跳出循环,等待事件循环中心下一次返回可读事件
                     if ($this->_currentPackageLength === 0) {
                         break;
                     } elseif ($this->_currentPackageLength > 0 && $this->_currentPackageLength <= $this->maxPackageSize) {
                         // Data is not enough for a package.
+                        // 应用层解析出的数据包长度大于累计收到的_recvBuffer的长度
+                        // 说明数据包尚未完整,break跳出循环等待事件循环中心返回下一次可读事件
                         if ($this->_currentPackageLength > \strlen($this->_recvBuffer)) {
                             break;
                         }
@@ -618,22 +647,29 @@ class TcpConnection extends ConnectionInterface
                 // The data is enough for a packet.
                 ++self::$statistics['total_request'];
                 // The current packet length is equal to the length of the buffer.
+                // 得到了完整的数据包
                 if (\strlen($this->_recvBuffer) === $this->_currentPackageLength) {
                     $one_request_buffer = $this->_recvBuffer;
                     $this->_recvBuffer  = '';
                 } else {
+                    // 处理数据的边界问题(沾包)
+                    // recvBuff的长度大于当前数据包的长度,需要对齐进行截断
                     // Get a full package from the buffer.
                     $one_request_buffer = \substr($this->_recvBuffer, 0, $this->_currentPackageLength);
                     // Remove the current package from the receive buffer.
+                    // 裁剪剩余的recvBuffer重新赋值
                     $this->_recvBuffer = \substr($this->_recvBuffer, $this->_currentPackageLength);
                 }
                 // Reset the current packet length to 0.
+                // 当前数据包的长度置0
                 $this->_currentPackageLength = 0;
+                //没有注册onMessage回调直接continue跳出
                 if (!$this->onMessage) {
                     continue;
                 }
                 try {
                     // Decode request buffer before Emitting onMessage callback.
+                    // 字节流数据解码后调用on_message回调
                     \call_user_func($this->onMessage, $this, $parser::decode($one_request_buffer, $this));
                 } catch (\Exception $e) {
                     Worker::log($e);
@@ -656,12 +692,10 @@ class TcpConnection extends ConnectionInterface
             $this->_recvBuffer = '';
             return;
         }
+        //如果没有配置应用层协议,则直接把字节数据转发给TcpConnection对象的onMessage回调
         try {
             \call_user_func($this->onMessage, $this, $this->_recvBuffer);
         } catch (\Exception $e) {
-            Worker::log($e);
-            exit(250);
-        } catch (\Error $e) {
             Worker::log($e);
             exit(250);
         }
@@ -912,6 +946,8 @@ class TcpConnection extends ConnectionInterface
     public function destroy()
     {
         // Avoid repeated calls.
+        // 先将_status设置为self::STATUS_CLOSED
+        // 如果被重复调用则不执行后续逻辑
         if ($this->_status === self::STATUS_CLOSED) {
             return;
         }
@@ -922,33 +958,31 @@ class TcpConnection extends ConnectionInterface
         // Close socket.
         try {
             @\fclose($this->_socket);
-        } catch (\Exception $e) {} catch (\Error $e) {}
+        } catch (\Exception $e) {}
 
+        //当前连接已经关闭
         $this->_status = self::STATUS_CLOSED;
         // Try to emit onClose callback.
+        // 执行onClose回调[传输层]
         if ($this->onClose) {
             try {
                 \call_user_func($this->onClose, $this);
             } catch (\Exception $e) {
                 Worker::log($e);
                 exit(250);
-            } catch (\Error $e) {
-                Worker::log($e);
-                exit(250);
             }
         }
         // Try to emit protocol::onClose
+        // 尝试执行应用层的onClose回调
         if ($this->protocol && \method_exists($this->protocol, 'onClose')) {
             try {
                 \call_user_func(array($this->protocol, 'onClose'), $this);
             } catch (\Exception $e) {
                 Worker::log($e);
                 exit(250);
-            } catch (\Error $e) {
-                Worker::log($e);
-                exit(250);
             }
         }
+        //清空读写缓冲区
         $this->_sendBuffer = $this->_recvBuffer = '';
         $this->_currentPackageLength = 0;
         $this->_isPaused = $this->_sslHandshakeCompleted = false;

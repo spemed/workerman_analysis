@@ -31,7 +31,7 @@ class EvTest extends TestCase
         $listenSocket = stream_socket_server("tcp://0.0.0.0:8343",$errno,$errStr);
 //创建失败报错
         if (!$listenSocket) {
-            exit("failed to create socket,errno={$errno},errStr={$errStr}");
+            "failed to create socket,errno={$errno},errStr={$errStr}");
         }
         try {
             $eventLoop->registerSocket($listenSocket, Flag::FD_READ, function ($listenSocket) use ($eventLoop) {
