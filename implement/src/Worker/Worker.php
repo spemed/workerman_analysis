@@ -62,4 +62,9 @@ class Worker
     {
         return $this->count;
     }
+
+    public function run()
+    {
+        while (true);
+    }
 }
